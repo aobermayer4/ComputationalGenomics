@@ -1,0 +1,25 @@
+1) 
+  a) After completeing the code I found that there were 293 amplicon sequence varients in our whole dataset but 143 ASVs remain after removing chimeric sequences.
+  b) The top three bacterial phyla observed are: Firmicutes, Proteobacteria, and Actinobacteria. 
+  The top five bacterial genera observed are: Strptococcus, Bacteroides, Bifidobacterium, Veillonella, and Acinetobacter
+
+2)
+  a) With the changes we have made the data cleaning steps more stringent.
+  b) The percentage of loss sequences for each sample at the cleaning steps are (insert prlossall table)
+  c) With this change the new number of ASVs is 241 and 132 after the chimeric sequences are taken out, as compared to the previous number of 293 and 143 respectively. This is due to the more stringent quality cleaning environment we created during the dereplication step. For instance the previous quality scor to truncate at was 2 and in this rerun we upped it to 12, this results in a greater number of reads being filtered out becuase they are not above the quality we are looking for. This explanation plays a similar role in raising the parameters for minQ and maxEE. Overall, we are raising the standard for the reads we are analyizing so we may loose more reads as we go through this step because there may not be as many that meet or exceed the quality level we set.
+
+3)
+  a) When changing the number of bases chopped off from the forward and reverse reads, there were many changes overall, though becoming more prevelant in the later steps. With trimming off a greater number of bases from the reads, after merging the forward and reverse the resulting paried end reads and unique read pairing drops tremendously, with Demo1 even dropping to zero. Additionally there are no chimeras found, and while the run starts with 243 ASVs, after all of the quality filtering and truncation there only seems to be 2 ASVs.
+  b) In this run we truncated the the bases by chopping of 30 and 50 from forward and reverse, respectively, which is a large jump from the 5 and 10 bases trimmed in the original run. This seems to have had a huge affect. Additionally, with forward reads tending to be of higher quality than reverse it may be possible this played a role in them not aligning well, as well as the lack of chimeras may have been from the heavy truncation. This might be able to be corrected by lowering the minimum amount of overlap when merging but that also lowers the criteria of specificity.
+
+4)
+  a) By observing the trak read file from the original code to the newly ran code I did not see any changes in read counts over steps. This is becuase the bootstrapping parameter is the only thing that was adjusted and it does not play a role in the read counts, it only plays a role in assigning the sequences to their possible taxanomic lineages.
+  b) When comparing the ASV taxonomy files, in the original code with a bootsrapping confidence level of 80 the number of NA values are 2, 6, 6, 9, 11, and 36 for their respective columns of Kingdom to genus. This is compared to the run where we adjusted the bootstrapping number to 50, to which the NA values were 1, 2, 2, 3, 5, and 19 for there respective columns of Kingdom to genus. 
+  c) Bootstrapping is a statictical resampling method to gain confidence in a prediciton. For this section of code we are assigning sequences to a particular taxa based off of a reference training dataset and we are using a bootstrapping parameter to give us a level of confidence that we are assigning this sequence correctly. The default value for the "assignTaxonomy" function for minBoot is 50, which tells the function to assign a certain classification only if that confidence level reaches 50%. In our original run we manually raised that confidence level to 80%. In turn this give a more stringent criteria of assigning certain variants to a particular taxa becuase it required 80% confidence level. This can be seen when comparing those NA values between the two samples, where the original had 36 NA values by the time it was assigning the genus and the adjust run to 50 had 19 NA values at the genus level. This represents that the higher criteria that needed to be met in the original run resulted in less samples able to be placed in a taxa becuase the function did not have meet confidence to place them there. With this, the minBoot value of 80 may be preferred if you want to have high confidence in your results, though as it shows there may be more samples unable to be placed. This could give rise to the need to go back to reassessing the quality filtering steps, the reference training set, or to the samples themselves and determine any adjustments that may need to be made.
+  
+  
+  
+  
+  
+  
+  

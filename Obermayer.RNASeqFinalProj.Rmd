@@ -1,0 +1,315 @@
+---
+title: "RNASeq"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+seqData <- read.table('~/R/ComputationalGenomics/RNAseq.FinalProject/GSE60450_Lactation-GenewiseCounts.txt', header = T, sep = '\t')
+
+expDesign <- read.table('~/R/ComputationalGenomics/RNAseq.FinalProject/SampleInfo_Corrected.txt', header = T, sep = '\t')
+expDesign
+```
+
+```{r}
+## loading DEseq2 
+library(DESeq2)
+
+## This function is designed for differential expression calling in the current study
+## The function (deSeqFun) input is: 
+## 1. reads count file (row name should be the geneID)
+## 2. vector corresponding the design information (e.g. treatment vs. control)
+
+
+deSeqFun <- function(dfInputCounts, 
+                     con = c(rep('c',4), rep('t',2)))
+{
+  #Calculate the Counts Per Million measure
+  myCPM     <- apply(dfInputCounts, 2, function(x){x/sum(x) * 10^6})
+  #Identify genes with at least 0.5 cpm in at least 2 samples
+  thresh    <- myCPM > 0.5
+  keep      <- rowSums(thresh) >= 2
+  dfInput   <- dfInputCounts[keep, ]
+  
+  table2    <- data.frame(name = colnames(dfInput),
+                       condition = as.factor(con))
+  dds       <- DESeqDataSetFromMatrix(dfInput, 
+                                colData=table2, design= ~ condition)
+  dds       <- DESeq(dds)
+  norCounts <- counts(dds, normalized=TRUE)
+  res       <- results(dds)
+  idNew     <- match(rownames(dfInputCounts), rownames(norCounts))
+  
+  norCountsReturn <- norCounts[idNew, ]
+  resReturn       <- res[idNew, ]
+  rownames(norCountsReturn) <- rownames(dfInputCounts)
+  rownames(resReturn)       <- rownames(dfInputCounts)
+  return(list(nC = norCountsReturn, res=resReturn))
+}
+rownames(seqData) <- seqData$EntrezGeneID
+## Reads count extracting for virgin-like state
+df_virgin  <- seqData[,grep('virgin', expDesign$Status)  +2 ]
+## Reads count extracting for pregnancy state
+df_pregnant<- seqData[,grep('pregnant', expDesign$Status)+2 ]
+## Reads count extracting for lactation state
+df_lactate <- seqData[,grep('lactate', expDesign$Status) +2 ]
+## All the matrix here have the same dimension, and the beginning two columns are 'basal,' while the following two columns are "luminal"
+
+## Differential expression calling for virgin-like state
+deseq_virgin  <- deSeqFun(df_virgin  ,c('b','b', 'v', 'v'))
+deseq_virgin
+## Differential expression calling for pregnancy state
+deseq_pregn   <- deSeqFun(df_pregnant,c('b','b', 'v', 'v'))
+##Differential expression calling for lactation state
+deseq_lactate  <- deSeqFun(df_lactate ,c('b','b', 'v', 'v'))
+## Now, the differential expressed genes between basal and luminal for three stages are returned
+## The return elements inside each variable include
+## 1. [nC], normalized DEseq counts
+## 2. [res],statistics value from DEseq
+## e.g. Using deseq_lactate$res or deseq_lactate$nC to check
+```
+
+3. Extracting differential expressed gene
+
+```{r}
+## Extracting differential expressed gene with padj < 0.01
+id_sig_virgin <- which(deseq_virgin$res$padj < 0.01)
+id_sig_virgin
+id_sig_pregn  <- which(deseq_pregn$res$padj  < 0.01)
+id_sig_lactate <- which(deseq_lactate$res$padj < 0.01)
+##Now, only the rowID of differential expressed genes are extracted
+
+
+
+## Bar plot drawing, showing the number of differential expressed genes
+## May considering give a Venn diagram for overlapped differential expressed genes at different stage?
+par(mar = c(3,8,1,1))
+barplot(c(length(id_sig_virgin),
+          length(id_sig_pregn),
+          length(id_sig_lactate)), col = 'cornflowerblue',
+        names = c('virgin','pregnant', 'lactate'), las = 1,
+        ylab = '#differential expressed gene', ylim = c(0,10000),
+        main = "Number of Differentially Expressed Genes at Each Stage")
+
+library(gplots)
+venn(list(Virgin = id_sig_virgin,Pregnant = id_sig_pregn,Lactating = id_sig_lactate))
+
+```
+
+```{r}
+## Normalizing the data by TPM
+tpm <- apply(seqData[,-c(1,2)], 2, function(x){
+  x/seqData$Length*10^9/sum(x)})
+rownames(tpm) <- seqData$EntrezGeneID
+
+## Extracting the rowID of differential expressed gene 
+sigRowID  <- unique(c(id_sig_virgin, id_sig_pregn, id_sig_lactate))
+tpm_sigDif<- tpm[sigRowID, ]
+
+## Performing PCA
+tpm_sigDifPCA   <- prcomp(tpm_sigDif,scale=F )
+## Assigning different color to the samples
+expDesign$color <- c('red','red',#'basal & virgin'
+                     'forestgreen','forestgreen',#'basal & pregnant'
+                     'gold','gold', #'basal & lactate'
+                     'cornflowerblue','cornflowerblue', #'luminal & virgin'
+                     'purple','purple', #'luminal & pregnant'
+                     'gray','gray') #'luminal & lactate'
+## PCA plot
+plot(tpm_sigDifPCA$rotation[,1],
+     tpm_sigDifPCA$rotation[,2], 
+     bg = expDesign$color,pch = 21,cex = 2,
+     las = 1,xlab = 'PCA_direction1',
+     ylab = 'PCA_direction20',
+     main = 'Principle Component Analysis of Basal and Luminal Cells')
+legend('bottomright', 
+       legend = unique(paste(expDesign$CellType,
+                      expDesign$Status, sep ='_')),
+       col= c('red','forestgreen','gold',
+               'cornflowerblue', 'purple', 'gray'),
+       pch = rep(19,6),cex=rep(1,6),
+       bty = 'n')
+```
+
+```{r}
+## Generating a data frame,using color indicating up or down regulated genes
+res_plot      <- data.frame( deseq_virgin$res)
+res_plot$col  <- 'gray40'
+res_plot$col[which(res_plot$log2FoldChange > 1 & res_plot$padj < 0.01)] <- 'red'
+res_plot$col[which(res_plot$log2FoldChange < -1 & res_plot$padj < 0.01)] <-'cornflowerblue'
+
+plot(res_plot$log2FoldChange,
+     -log10(res_plot$padj),
+     col = res_plot$col, pch = 19, xlab = 'log2(fold change)',
+     ylab = '-log10(p-adj)', 
+     las = 1,
+     main = 'Virgin Sample Differentially Expressed Genes'
+     )
+```
+
+```{r}
+res_plot      <- data.frame( deseq_lactate$res)
+res_plot$col  <- 'gray40'
+res_plot$col[which(res_plot$log2FoldChange > 1 & res_plot$padj < 0.01)] <- 'red'
+res_plot$col[which(res_plot$log2FoldChange < -1 & res_plot$padj < 0.01)] <-'cornflowerblue'
+
+plot(res_plot$log2FoldChange,
+     -log10(res_plot$padj),
+     col = res_plot$col, pch = 19, xlab = 'log2(fold change)',
+     ylab = '-log10(p-adj)', 
+     las = 1,
+     main = 'Lactating Sample Differentially Expressed Genes' 
+     )
+```
+
+```{r}
+res_plot      <- data.frame( deseq_pregn$res)
+res_plot$col  <- 'gray40'
+res_plot$col[which(res_plot$log2FoldChange > 1 & res_plot$padj < 0.01)] <- 'red'
+res_plot$col[which(res_plot$log2FoldChange < -1 & res_plot$padj < 0.01)] <-'cornflowerblue'
+
+plot(res_plot$log2FoldChange,
+     -log10(res_plot$padj),
+     col = res_plot$col, pch = 19, xlab = 'log2(fold change)',
+     ylab = '-log10(p-adj)', 
+     las = 1,
+     main = 'Pregnant Sample Differentially Expressed Genes' 
+     )
+```
+
+
+```{r}
+## Loading the KEGG annotation file
+geneID_KeggPathway <- read.table('~/R/ComputationalGenomics/RNAseq.FinalProject/kegg.pathway.gene.txt', header = T, sep = '\t')
+
+## Building the funciton for KEGG enrichment analysis
+## The function (deSeqFun) input is: 
+## 1. Gene ID for test
+## 2. All gene ID in background
+## 3. Matrix of KEGG pathway annotation. The first column is geneID, while the second column is corresponding KEGG annotation
+enrichment_analysis <- function(geneID_query,
+                          geneID_background,
+                          geneAnnotation) 
+{
+     geneQueryInf      <- geneAnnotation[geneAnnotation[,1] %in% geneID_query,]
+     geneBackgroundInf <- geneAnnotation[geneAnnotation[,1] %in% geneID_background,]
+     queryGOterm <- unique(geneQueryInf[,2])
+     
+     goResult <- c()
+     aa <- sapply(queryGOterm, function(id) 
+     {
+            numQuery        <- length( which(geneQueryInf[,2] == id) )
+            numBackground   <- length( which(geneBackgroundInf[,2] == id))
+            
+            numQuery_no     <- length(geneID_query) - numQuery
+            numBackground_no<- length(geneID_background) - numBackground
+            
+            #print(c(numBackground, numBackground_no))
+            fishTest <- fisher.test(rbind( c(numQuery, numQuery_no),
+                                           c(numBackground, numBackground_no) ),
+                                    alternative = 'greater')
+            infReturn <- c(numQuery,
+                           numQuery_no,
+                           numBackground,
+                           numBackground_no, fishTest$p.value)
+            goResult <<- rbind(goResult, infReturn)
+     })
+     rownames(goResult) <- queryGOterm
+     colnames(goResult) <- c('#QueryWithKEGGterm',
+                             '#QueryWithoutKEGGterm',
+                             '#BackgroundWithKEGGterm',
+                             '#BackgroundWithoutKEGGterm', 'pvalue')
+     goResult <- data.frame(goResult)
+     goResult$padj <- p.adjust(goResult$pvalue, method = 'fdr')
+     return(goResult)
+}
+## Extracting differential expressed genes during lactation
+dif_lactateGene <- rownames(deseq_lactate$res)[which(deseq_lactate$res$padj < 0.01)]
+dif_virginGene <- rownames(deseq_virgin$res)[which(deseq_virgin$res$padj < 0.01)]
+dif_pregnantGene <- rownames(deseq_pregn$res)[which(deseq_pregn$res$padj < 0.01)]
+## Performing enrichment analysis using function enrichment_analysis
+keggEnrichment_lactate <- enrichment_analysis(
+  dif_lactateGene[dif_lactateGene %in% geneID_KeggPathway$geneID],   ## query geneID in whole KEGG list
+                              unique(geneID_KeggPathway$geneID),     ## geneID in whole KEGG list
+                              geneID_KeggPathway)                    ## KEGG list, two columns 
+
+keggEnrichment_virgin <- enrichment_analysis(
+  dif_virginGene[dif_virginGene %in% geneID_KeggPathway$geneID],   ## query geneID in whole KEGG list
+                              unique(geneID_KeggPathway$geneID),     ## geneID in whole KEGG list
+                              geneID_KeggPathway)                    ## KEGG list, two columns 
+
+keggEnrichment_pregnant <- enrichment_analysis(
+  dif_pregnantGene[dif_pregnantGene %in% geneID_KeggPathway$geneID],   ## query geneID in whole KEGG list
+                              unique(geneID_KeggPathway$geneID),     ## geneID in whole KEGG list
+                              geneID_KeggPathway)                    ## KEGG list, two columns 
+```
+
+7. Barplot showing the significant KEGG
+
+```{r}
+## Picking up the KEGG term with padj < 0.1 for state lactation
+keggSig_lactate   <- keggEnrichment_lactate[keggEnrichment_lactate$padj < 0.1,]
+## Calculating the expection of gene counts. Based on the fraction of the genes with specific KEGG term, multiple the total number of the genes in query data sets (e.g. lactation state)
+keggSig_lactate$expection <- keggSig_lactate$X.BackgroundWithKEGGterm/(keggSig_lactate$X.BackgroundWithKEGGterm +
+                   keggSig_lactate$X.BackgroundWithoutKEGGterm) * (keggSig_lactate$X.QueryWithKEGGterm + 
+                                                    keggSig_lactate$X.QueryWithoutKEGGterm)
+
+keggSig_lactate <- keggSig_lactate[order(keggSig_lactate$X.QueryWithKEGGterm), ]
+keggSigDraw_lactate <- t( keggSig_lactate[,c(1,7)] )
+
+## Bar plot drawing
+par(mar = c(4,20,3,4))
+barplot(keggSigDraw_lactate, horiz = T, las = 1,
+        main = 'KEGG Term Gene Counts /\n Genes in Query Data Set',
+        xlab = 'Gene Counts')
+
+lactate_mtor <- grep('mTOR', rownames(keggEnrichment_lactate), ignore.case = T)
+lactate_mtor
+```
+
+```{r}
+## Picking up the KEGG term with padj < 0.1 for state lactation
+keggSig_virgin   <- keggEnrichment_virgin[keggEnrichment_virgin$padj < 0.1,]
+## Calculating the expection of gene counts. Based on the fraction of the genes with specific KEGG term, multiple the total number of the genes in query data sets (e.g. lactation state)
+keggSig_virgin$expection <- keggSig_virgin$X.BackgroundWithKEGGterm/(keggSig_virgin$X.BackgroundWithKEGGterm +
+                   keggSig_virgin$X.BackgroundWithoutKEGGterm) * (keggSig_lactate$X.QueryWithKEGGterm + 
+                                                    keggSig_lactate$X.QueryWithoutKEGGterm)
+
+keggSig_virgin <- keggSig_virgin[order(keggSig_virgin$X.QueryWithKEGGterm), ]
+keggSigDraw_virgin <- t( keggSig_virgin[,c(1,7)] )
+
+## Bar plot drawing
+par(mar = c(4,20,3,4))
+barplot(keggSigDraw_virgin, horiz = T, las = 1,
+        main = 'KEGG Term Gene Counts /\n Genes in Query Data Set',
+        xlab = 'Gene Counts')
+
+virgin_mtor <- grep('mTOR', rownames(keggEnrichment_virgin), ignore.case = T)
+virgin_mtor
+```
+
+```{r}
+## Picking up the KEGG term with padj < 0.1 for state lactation
+keggSig_pregnant   <- keggEnrichment_pregnant[keggEnrichment_pregnant$padj < 0.1,]
+## Calculating the expection of gene counts. Based on the fraction of the genes with specific KEGG term, multiple the total number of the genes in query data sets (e.g. lactation state)
+keggSig_pregnant$expection <- keggSig_pregnant$X.BackgroundWithKEGGterm/(keggSig_pregnant$X.BackgroundWithKEGGterm +
+                   keggSig_pregnant$X.BackgroundWithoutKEGGterm) * (keggSig_pregnant$X.QueryWithKEGGterm + 
+                                                    keggSig_pregnant$X.QueryWithoutKEGGterm)
+
+keggSig_pregnant <- keggSig_pregnant[order(keggSig_pregnant$X.QueryWithKEGGterm), ]
+keggSigDraw_pregnant <- t( keggSig_pregnant[,c(1,7)] )
+
+## Bar plot drawing
+par(mar = c(4,20,3,4))
+barplot(keggSigDraw_pregnant, horiz = T, las = 1,
+        main = 'KEGG Term Gene Counts /\n Genes in Query Data Set',
+        xlab = 'Gene Counts')
+
+preg_mtor <- grep('mTOR', rownames(keggEnrichment_pregnant), ignore.case = T)
+preg_mtor
+```
